@@ -1,0 +1,19 @@
+{
+  "name": "lighthouse-runner",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "deno run --allow-net --allow-env --allow-read --allow-run --allow-write --allow-sys src/index.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "chrome-launcher": "^1.1.2",
+    "inquirer": "^12.1.0",
+    "lighthouse": "^12.2.2",
+    "ora": "^8.1.1"
+  }
+}
