@@ -13,10 +13,15 @@ const runLighthouseTest = async (url: string, runs: number) => {
     output: 'json', 
     port: chrome.port, 
     onlyCategories: ['performance', 'accessibility', 'best-practices', 'seo'] ,
-    formFactor: 'desktop',
-    throttlingMethod: 'provided',
+    formFactor: 'mobile',
+    throttlingMethod: 'devtools',
+    throttling: {
+      rttMs: 100,
+      throughputKbps: 10 * 1024,
+      cpuSlowdownMultiplier: 4,
+    },
     screenEmulation: {
-      mobile: false,
+      mobile: true,
     },
   };
   const spinner = ora('Running Lighthouse test').start();
@@ -71,19 +76,17 @@ const runLighthouseTest = async (url: string, runs: number) => {
   chrome.kill();
 
   const avgMetrics = calcAvgMetrics(results);
-  const runAvgTime = totalTime / runs;
 
-  console.log(`\n🚀 Test results for ${url}:`);
-  console.log(`  🔢 Total runtime: ${(totalTime / 1000).toFixed(2)} seconds`);
-  console.log('  🧑‍💻 Metrics (in seconds):');
-  console.log(`    Performance: ${(avgMetrics.performance / runs).toFixed(2)}`);
-  console.log(`    Accessibility: ${(avgMetrics.accessibility / runs).toFixed(2)}`);
-  console.log(`    Best Practices: ${(avgMetrics.bestPractices / runs).toFixed(2)}`);
-  console.log(`    SEO: ${(avgMetrics.seo / runs).toFixed(2)}`);
-  console.log('  📏 Web Vitals:');
-  console.log(`    FCP: ${(avgMetrics.webVitals.fcp / runs).toFixed(2)}s`);
-  console.log(`    LCP: ${(avgMetrics.webVitals.lcp / runs).toFixed(2)}s`);
-  console.log(`  ⏰ Average runtime per test: ${(runAvgTime / 1000).toFixed(2)}s`);
+  console.log('\n🚀 Test results');
+  console.log(`  ⏰ Total runtime: ${(totalTime / 1000).toFixed(2)} seconds`);
+  console.log('  📊 Metrics (in seconds):');
+  console.log(`    - Performance: ${(avgMetrics.performance / runs).toFixed(2)}`);
+  console.log(`    - Accessibility: ${(avgMetrics.accessibility / runs).toFixed(2)}`);
+  console.log(`    - Best Practices: ${(avgMetrics.bestPractices / runs).toFixed(2)}`);
+  console.log(`    - SEO: ${(avgMetrics.seo / runs).toFixed(2)}`);
+  console.log('  🌐 Web Vitals:');
+  console.log(`    - FCP: ${(avgMetrics.webVitals.fcp / runs).toFixed(2)}s`);
+  console.log(`    - LCP: ${(avgMetrics.webVitals.lcp / runs).toFixed(2)}s`);
 
   console.log('\n📋 Performance Enhancement Tips:');
   performanceTips.forEach((tip) => console.log(`  - ${tip}`));
