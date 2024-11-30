@@ -8,19 +8,33 @@ import { prompts } from './constants.ts';
 
 const runLighthouseTest = async (url: string, runs: number) => {
   const chrome = await chromeLauncher.launch({ chromeFlags: ['--headless'] });
-  const options: Flags = { logLevel: 'silent', output: 'json', port: chrome.port, onlyCategories: ['performance', 'accessibility', 'best-practices', 'seo'] };
+  const options: Flags = { 
+    logLevel: 'silent', 
+    output: 'json', 
+    port: chrome.port, 
+    onlyCategories: ['performance', 'accessibility', 'best-practices', 'seo'] ,
+    formFactor: 'desktop',
+    throttlingMethod: 'provided',
+    screenEmulation: {
+      mobile: false,
+    },
+  };
   const spinner = ora('Running Lighthouse test').start();
   const results: Result[] = [];
+  const performanceTips = new Set<string>();
   let totalTime = 0;
+
   for (let i = 0; i < runs; i++) {
     spinner.text = `Running test ${i + 1} of ${runs}...`;
     const start = Date.now();
     const result = await lighthouse(url, options);
     const duration = Date.now() - start;
     totalTime += duration;
+
     if (result) {
       spinner.text = `Test ${i + 1} completed in ${duration / 1000}s`;
       const { categories, audits } = result.lhr;
+
       const performance = normalizeScore(categories.performance.score);
       const accessibility = normalizeScore(categories.accessibility.score);
       const bestPractices = normalizeScore(categories['best-practices'].score);
@@ -35,12 +49,25 @@ const runLighthouseTest = async (url: string, runs: number) => {
           lcp: audits['largest-contentful-paint'].numericValue || 0,
         },
       });
+
+      for (const key in audits) {
+        const audit = audits[key];
+        if (audit.score !== 1 && audit.details) {
+          const {details} = audit;
+          if ('displayValue' in details && details.displayValue) {
+            performanceTips.add(`${audit.title}: ${details.displayValue}`);
+          } else if (audit.description) {
+            performanceTips.add(`${audit.title}: ${audit.description}`);
+          }
+        }
+      }
+      
     } else {
       spinner.text = `❌ Test ${i + 1} failed`;
     }
   }
 
-  spinner.succeed('✅ All tests completed successfully');
+  spinner.succeed('✅ All tests completed');
   chrome.kill();
 
   const avgMetrics = calcAvgMetrics(results);
@@ -48,16 +75,20 @@ const runLighthouseTest = async (url: string, runs: number) => {
 
   console.log(`\n🚀 Test results for ${url}:`);
   console.log(`  🔢 Total runtime: ${(totalTime / 1000).toFixed(2)} seconds`);
-  console.log('  🧑‍💻 Average Metrics (in seconds):');
+  console.log('  🧑‍💻 Metrics (in seconds):');
   console.log(`    Performance: ${(avgMetrics.performance / runs).toFixed(2)}`);
   console.log(`    Accessibility: ${(avgMetrics.accessibility / runs).toFixed(2)}`);
   console.log(`    Best Practices: ${(avgMetrics.bestPractices / runs).toFixed(2)}`);
   console.log(`    SEO: ${(avgMetrics.seo / runs).toFixed(2)}`);
-  console.log('  📏 Average Web Vitals:')
+  console.log('  📏 Web Vitals:');
   console.log(`    FCP: ${(avgMetrics.webVitals.fcp / runs).toFixed(2)}s`);
   console.log(`    LCP: ${(avgMetrics.webVitals.lcp / runs).toFixed(2)}s`);
-  console.log(`  ⏱ Average runtime per test: ${(runAvgTime / 1000).toFixed(2)}s`);
+  console.log(`  ⏰ Average runtime per test: ${(runAvgTime / 1000).toFixed(2)}s`);
+
+  console.log('\n📋 Performance Enhancement Tips:');
+  performanceTips.forEach((tip) => console.log(`  - ${tip}`));
 };
+
 
 const main = async () => {
   const { url, runs } = await inquirer.prompt(prompts);
