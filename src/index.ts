@@ -1,101 +1,87 @@
-import lighthouse, { type Flags } from 'npm:lighthouse';
-import * as chromeLauncher from 'npm:chrome-launcher';
-import ora from 'npm:ora';
-import inquirer from 'npm:inquirer';
-import { Result } from './types.ts';
-import { calcAvgMetrics, normalizeScore } from './utils.ts';
-import { prompts } from './constants.ts';
+import lighthouse, { type Flags } from "npm:lighthouse";
+import * as chromeLauncher from "npm:chrome-launcher";
+import ora from "npm:ora";
+import inquirer from "npm:inquirer";
+import { Result } from "./types.ts";
+import { calcAvgMetrics, initLogger, normalizeScore } from "./utils.ts";
+import { prompts, throttlingConfigs } from "./constants.ts";
 
 const runLighthouseTest = async (url: string, runs: number) => {
-  const chrome = await chromeLauncher.launch({ chromeFlags: ['--headless'] });
-  const options: Flags = { 
-    logLevel: 'silent', 
-    output: 'json', 
-    port: chrome.port, 
-    onlyCategories: ['performance', 'accessibility', 'best-practices', 'seo'] ,
-    formFactor: 'mobile',
-    throttlingMethod: 'devtools',
-    throttling: {
-      rttMs: 100,
-      throughputKbps: 10 * 1024,
-      cpuSlowdownMultiplier: 4,
-    },
-    screenEmulation: {
-      mobile: true,
-    },
-  };
-  const spinner = ora('Running Lighthouse test').start();
-  const results: Result[] = [];
-  const performanceTips = new Set<string>();
+  const chrome = await chromeLauncher.launch({ chromeFlags: ["--headless"] });
+  const resultsByConfig: Record<string, Result[]> = {};
   let totalTime = 0;
 
-  for (let i = 0; i < runs; i++) {
-    spinner.text = `Running test ${i + 1} of ${runs}...`;
-    const start = Date.now();
-    const result = await lighthouse(url, options);
-    const duration = Date.now() - start;
-    totalTime += duration;
+  for (const { label, options } of throttlingConfigs) {
+    const results: Result[] = [];
+    const spinner = ora().start();
+    for (let i = 0; i < runs; i++) {
+      spinner.text = `Running test ${i + 1}/${runs} for ${label}...`;
+      const start = Date.now();
+      const result = await lighthouse(
+        url,
+        {
+          ...options,
+          logLevel: "silent",
+          output: "json",
+          port: chrome.port,
+        } as Flags,
+      );
+      const duration = Date.now() - start;
+      totalTime += duration;
 
-    if (result) {
-      spinner.text = `Test ${i + 1} completed in ${duration / 1000}s`;
-      const { categories, audits } = result.lhr;
-
-      const performance = normalizeScore(categories.performance.score);
-      const accessibility = normalizeScore(categories.accessibility.score);
-      const bestPractices = normalizeScore(categories['best-practices'].score);
-      const seo = normalizeScore(categories.seo.score);
-      results.push({
-        performance,
-        accessibility,
-        bestPractices,
-        seo,
-        webVitals: {
-          fcp: audits['first-contentful-paint'].numericValue || 0,
-          lcp: audits['largest-contentful-paint'].numericValue || 0,
-        },
-      });
-
-      for (const key in audits) {
-        const audit = audits[key];
-        if (audit.score !== 1 && audit.details) {
-          const {details} = audit;
-          if ('displayValue' in details && details.displayValue) {
-            performanceTips.add(`${audit.title}: ${details.displayValue}`);
-          } else if (audit.description) {
-            performanceTips.add(`${audit.title}: ${audit.description}`);
-          }
-        }
+      if (result) {
+        const { categories, audits } = result.lhr;
+        results.push({
+          performance: normalizeScore(categories.performance.score),
+          accessibility: normalizeScore(categories.accessibility.score),
+          bestPractices: normalizeScore(categories["best-practices"].score),
+          seo: normalizeScore(categories.seo.score),
+          webVitals: {
+            fcp: audits["first-contentful-paint"].numericValue || 0,
+            lcp: audits["largest-contentful-paint"].numericValue || 0,
+          },
+        });
       }
-      
-    } else {
-      spinner.text = `❌ Test ${i + 1} failed`;
     }
+    resultsByConfig[label] = results;
+    spinner.clear();
+    console.log(`✅ Completed tests for ${label}`);
   }
 
-  spinner.succeed('✅ All tests completed');
   chrome.kill();
 
-  const avgMetrics = calcAvgMetrics(results);
+  console.log(`\n⏰ Total runtime: ${(totalTime / 1000).toFixed(2)} seconds`);
+  console.log(`📊 Average results for ${runs} runs:`);
 
-  console.log('\n🚀 Test results');
-  console.log(`  ⏰ Total runtime: ${(totalTime / 1000).toFixed(2)} seconds`);
-  console.log('  📊 Metrics (in seconds):');
-  console.log(`    - Performance: ${(avgMetrics.performance / runs).toFixed(2)}`);
-  console.log(`    - Accessibility: ${(avgMetrics.accessibility / runs).toFixed(2)}`);
-  console.log(`    - Best Practices: ${(avgMetrics.bestPractices / runs).toFixed(2)}`);
-  console.log(`    - SEO: ${(avgMetrics.seo / runs).toFixed(2)}`);
-  console.log('  🌐 Web Vitals:');
-  console.log(`    - FCP: ${(avgMetrics.webVitals.fcp / runs).toFixed(2)}s`);
-  console.log(`    - LCP: ${(avgMetrics.webVitals.lcp / runs).toFixed(2)}s`);
+  for (const label in resultsByConfig) {
+    const results = resultsByConfig[label];
+    const avgMetrics = calcAvgMetrics(results);
+    const configEmoji = throttlingConfigs.find((config) =>
+      config.label === label
+    )?.emoji || "";
 
-  console.log('\n📋 Performance Enhancement Tips:');
-  performanceTips.forEach((tip) => console.log(`  - ${tip}`));
+    console.log(`\n${configEmoji} ${label}:`);
+    console.log(
+      `  - Performance: ${(avgMetrics.performance / runs).toFixed(2)}`,
+    );
+    console.log(
+      `  - Accessibility: ${(avgMetrics.accessibility / runs).toFixed(2)}`,
+    );
+    console.log(
+      `  - Best Practices: ${(avgMetrics.bestPractices / runs).toFixed(2)}`,
+    );
+    console.log(`  - SEO: ${(avgMetrics.seo / runs).toFixed(2)}`);
+    console.log(`  - FCP: ${(avgMetrics.webVitals.fcp / runs).toFixed(2)}s`);
+    console.log(`  - LCP: ${(avgMetrics.webVitals.lcp / runs).toFixed(2)}s`);
+  }
 };
 
-
 const main = async () => {
+  const { resetLogger } = initLogger();
   const { url, runs } = await inquirer.prompt(prompts);
+  console.log("\n🚀 Running Lighthouse tests...");
   await runLighthouseTest(url, runs);
+  resetLogger();
   Deno.exit(0);
 };
 
@@ -104,9 +90,9 @@ const shutdown = (signal: string) => {
   Deno.exit(0);
 };
 
-addEventListener('SIGINT', () => shutdown('SIGINT'));
+addEventListener("SIGINT", () => shutdown("SIGINT"));
 
 main().catch((error) => {
-  console.error('🚨 An error occurred:', error);
+  console.error("🚨 An error occurred:", error);
   Deno.exit(1);
 });
